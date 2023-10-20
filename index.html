@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Jspsych Webcam Recording Template</title>
+    <script src="custom_jspsych/jspsych.js"></script>
+    <script src="custom_jspsych/plugin-html-keyboard-response.js"></script>
+    <script src="custom_jspsych/plugin-external-html.js"></script>
+    <script src="custom_jspsych/plugin-browser-check.js"></script>
+    <script src="custom_jspsych/plugin-virtual-chinrest.js"></script>
+    <script src="custom_jspsych/plugin-distance-calib.js"></script>
+    <script src="custom_jspsych/plugin-fullscreen.js"></script>
+    <script src="custom_jspsych/plugin-html-button-response.js"></script>
+    <script src="custom_jspsych/extension-webcam-record.js"></script>
+    <script src="custom_jspsych/plugin-webcam-setup.js"></script>
+    <script src="custom_jspsych/plugin-fix-point-calibration.js"></script>
+    <script src="custom_jspsych/plugin-smooth-pursuit-calibration.js"></script>
+    
+    <script src="jatos.js"></script> 
+    <link href="custom_jspsych/jspsych.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body></body>
+<script>
+
+//Define global const variables
+const PIXELS_PER_DEG = 50; //the code uses arbritary pixel units which are interpreted in visual degrees to present all stimuli
+//Present all stimuli on a window size of 29.6 x 16.65 visual degrees represented in pixels as below. Change the pixel values to change window size.
+const WIN_HEIGHT = 830;
+const WIN_WIDTH = 1480;
+
+// Track errors to be reported at the end of experiment
+let jatos_error_summary = "";
+// Store all console logs and send it to the server at the end of experiment
+console.stdlog = console.log.bind(console);
+console.logs = [];
+console.log = function() {
+    console.logs.push(Array.from(arguments));
+    console.stdlog.apply(console, arguments);
+}
+
+async function request_file(file_name, parseJSON = false) {
+    try {
+        let resp;
+        const response = await fetch(file_name);
+        if (parseJSON) {
+            resp = await response.json();
+        } else {
+            resp = await response.text()
+        }
+        return resp;
+    } catch (error) {
+        jatos_error_summary += "Error preloading files."
+        console.error("Error loading files:", error);
+        return null;
+    }
+}
+
+// Function to create an overlay when experiment exits fullscreen
+function handleFullscreenOverlay() {
+    const event = document.isFullScreen || document.webkitIsFullScreen || document.mozIsFullScreen || document.fullscreenElement
+            ? "fullscreenenter"
+            : "fullscreenexit";
+
+    if (event == "fullscreenexit") {
+        const overlayDiv = document.createElement('div');
+        overlayDiv.id ='fullscreen-overlay'
+        overlayDiv.classList.add("custom-fullscreen-overlay")
+        overlayDiv.innerHTML = `<center>
+        <p> Experiment paused. </br> Please return to full screen to continue with the experiment. </p> 
+        <button id="fullscreen-btn"> Return to fullscreen </button>
+        </center>`;
+
+        overlayDiv.querySelector("#fullscreen-btn").addEventListener('click', function () {
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+            }
+        }); //request Fullscreen from the browser
+
+        document.body.appendChild(overlayDiv); //display Overlay
+    }
+    else if (event == "fullscreenenter"){
+
+        const overlayDiv = document.getElementById('fullscreen-overlay'); // Replace 'overlay' with the actual ID of your div
+        // Check if the overlay div exists in the DOM
+        if (overlayDiv) {
+            overlayDiv.parentNode.removeChild(overlayDiv); // Remove the overlay div from the DOM
+        }
+    }
+};
+//add event handlers for when full screen is exited.
+document.addEventListener("fullscreenchange", handleFullscreenOverlay);
+document.addEventListener("mozfullscreenchange", handleFullscreenOverlay);
+document.addEventListener("webkitfullscreenchange", handleFullscreenOverlay);
+
+
+/* Initialize JsPsych */
+var jsPsych;
+var upload_counter = 0; //counter for data checkpoints
+function createJsPsych() {
+    return initJsPsych({
+        // on_trial_start: jatos.addAbortButton, //to add an Abort button (only when hosting through JATOS)
+
+        on_finish: (data, end_message="") => {
+                //remove fullScreenEventListeners 
+                document.removeEventListener("fullscreenchange", handleFullscreenOverlay);
+                document.removeEventListener("mozfullscreenchange", handleFullscreenOverlay);
+                document.removeEventListener("webkitfullscreenchange", handleFullscreenOverlay);
+
+                //Upload final console logs
+                jatos.uploadResultFile(console.logs.join("/n"), "Console_logs_final.txt")
+                    .then(() => jatos.uploadResultFile(jsPsych.data.getInteractionData(), "Interaction_data.json"))
+                    .then(() => jatos.endStudy(data.json(), true, "Experiment completed. Errors encountered: "+jatos_error_summary+"##Jspsych: "+end_message))
+                    .catch((e) => {
+                        console.log("Error encountered: ", e)
+                        jatos.endStudy(data.json(), true, "Error on finish: "+e)
+                    });
+            },
+
+        // upload data and console checkpoints after each update
+        on_data_update: function(data) {
+            try{
+                upload_counter += 1;
+                jatos.uploadResultFile(jsPsych.data.get().json(), "data_ckpt.json")
+                    .then(() => console.log(`data_ckpt_${upload_counter} successfully uploaded`))
+                    .catch(() => console.log(`data_ckpt_${upload_counter} upload failed`));
+
+                jatos.uploadResultFile(console.logs.join("/n"), "Console_logs_ckpt.txt")
+                    .then(() => console.log(`Console_logs_ckpt_${upload_counter} successfully uploaded`))
+                    .catch((error) => console.log(`Console_logs_ckpt_${upload_counter} upload failed`, error));
+            } catch(e) {
+                jatos_error_summary += `error uploading checkpoint ${upload_counter}: ${e} `
+                console.log(`error uploading checkpoint ${upload_counter}: ${e}`)
+            }
+            },
+
+        // add Webcam extension to the experiment
+        extensions: [{
+            type: jsPsychWebcamRecord,
+            params: {
+                "using_setup_plugin": true,
+                "default_camera_options": true,
+                "jatos": jatos,
+            }
+        }],
+    });
+};
+
+
+//wait for JATOS to load (remove if not hosting through JATOS)
+jatos.onLoad(() => {
+    //initialize jsPsych  
+    jsPsych = createJsPsych()
+
+    /* create device check trial to exclude mobile phones amd Safari browser */
+    const setup_device_check = {
+        //stores ["width", "height", "webaudio", "browser", "browser_version", "mobile", "os", "fullscreen", "vsync_rate", "webcam", "microphone"] to data
+
+        type: jsPsychBrowserCheck,
+        vsync_frame_count: 120,
+        inclusion_function: (data) => {
+            return data.mobile === false && ['chrome', 'firefox', 'edge-chromium'].includes(data.browser);
+        },
+        exclusion_message: (data) => {
+            if (data.mobile) {
+                    console.log("##EXITING BECAUSE MOBILE");
+                    jatos_error_summary += "Mobile device was used. "
+                    alert("You must use a desktop/laptop with a front facing webcam to participate in this experiment.");
+                return '<p> You must use a desktop/laptop with a front facing webcam to participate in this experiment. </p>'
+            } else if (!['chrome', 'firefox', 'edge-chromium'].includes(data.browser)) {
+                    console.log("##EXITING BECAUSE SAFARI");
+                    jatos_error_summary += "Safari browser was used. "
+                    alert("You must use Chrome, Edge or Firefox as your browser to complete this experiment.");
+                    return '<p> You must use Chrome, Edge or Firefox as your browser to complete this experiment. </p>'
+            }
+        },
+        data: {trial_link: "setup_device_check"}
+    };
+
+    /* Create webcam trial to setup webcam recording parameters */
+    const setup_webcam = {
+        type: jsPsychWebcamSetup,
+        instructions: `<p> Throughout the experiment, we will use the webcam to track where your eyes are on the screen. <br>
+                                Make sure that your face is completely visible and centered in the above frame. <br>
+                                Before proceding to the experiment, it is important that you confirm the following: <br>
+                                <ul><li> You are seated in a well-lit room. </li>
+                          <li> There is no light source (e.g. window, lamp) behind you. </li> 
+                          <li> Your face is illuminated from the front. </li>
+                          <li> Nothing is covering your face (e.g. medical mask, hands). Please make sure not to rest your head on your hands during the experiment.</li></ul>
+                          </p>
+                                    <p>Select the internal webcam device from the drop down list and press Next to proceed when you're ready.</p>`,
+        data: {trial_link: "setup_webcam"}
+    };
+
+    /* Create initial consent trial */ 
+    const check_consent = function(elem) {
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        let allChecked = true;
+        // Check if all checkboxes are checked
+        for (let i = 0; i < checkboxes.length; i++) {
+            if (!checkboxes[i].checked) {
+                allChecked = false;
+                alert("If you wish to participate, you must check all the boxes");
+                break;
+            }
+        }
+        return allChecked
+    };
+    const form_consent = {
+        type: jsPsychExternalHtml,
+        url: "imports/consent.html",
+        cont_btn: "start",
+        check_fn: check_consent,
+        force_refresh: true,
+        data: {trial_link: "form_consent"}
+    };
+
+    /* Create fullscreen trial*/
+    const setup_fullscreen = {
+        type: jsPsychFullscreen,
+        fullscreen_mode: true,
+        message: `<h4> Ready to begin! </h4> <p>The experiment will now switch to full screen mode when you press the button below. <br> Please note that during the experiment you should not press the escape (Esc) key or use the "backward" button in your browser.<br> Such actions could lead to an immediate termination of the experiment. </p>`,
+        button_label: "I agree",
+        data: {trial_link: "setup_fullscreen"}
+    };
+
+
+    let timeline = [];
+
+    /* start experiment with consent form */
+    timeline.push(form_consent);
+
+    /* Load experiment */
+    console.log("##performing browser check")
+    timeline.push(setup_device_check);
+    console.log("##setting up webcam extension")
+    timeline.push(setup_webcam);
+    
+    /* Switch to full screen */
+    console.log("##enabling full screen")
+    timeline.push(setup_fullscreen);
+
+
+    /* Create timeline tasks here */
+
+    //adding a demo keybord-response trial 
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: 'Webcam data recording in progress. Press any key to end.',
+      extensions: [{ type: jsPsychWebcamRecord, params: { filename: "webcam_recording_test"} }],
+    })
+
+
+    /* End experiment with a Thanks slide */
+    const instructions_thanks = {
+        type: jsPsychExternalHtml,
+        url: "imports/thanks.html",
+        cont_btn: "Finish",
+        force_refresh: true
+    };
+    timeline.push(instructions_thanks);
+
+    jsPsych.run(timeline);
+
+});
+
+
+</script>
+
+</html>
