@@ -89,7 +89,9 @@ var jsPsychWebcamRecord = (function(jspsych) {
         init_mediaRecorder() {
             this.mediaRecorder = new MediaRecorder(this.streamObj, this.constraintObj);
             this.mediaRecorder.ondataavailable = (ev) => {
-                this.videoChunks.push(ev.data);
+                if (ev.data.size > 0){
+                    this.videoChunks.push(ev.data);
+                }
             }
             this.mediaRecorder.onstop = (e) => {
                 let blob = new Blob(this.videoChunks, { 'type': 'video/mp4;' });
