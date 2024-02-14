@@ -50,8 +50,7 @@ var jsPsychWebcamRecord = (function(jspsych) {
                         this.jsPsych.endExperiment("webcam video upload error"+error, {error_data: "webcam video upload error"+error}); 
                     })
             } else {
-                console.log("WEBCAM: JatosInstance not initialized");
-                this.jsPsych.endExperiment("WEBCAM: JatosInstance not initialized", {error_data: "WEBCAM: JatosInstance not initialized"});
+                console.log("WEBCAM: JatosInstance not initialized, videos won't be sent to server");
             }
         }
 
@@ -65,7 +64,9 @@ var jsPsychWebcamRecord = (function(jspsych) {
             if (navigator.mediaDevices === undefined || !navigator.mediaDevices.getUserMedia) {
                 console.log("WEBCAM: getUserMedia is not supported on browser ")
                 alert(`Unfortunately, your browser is not supported. Please update or try on a different web browser.`);
-                this.jatosInstance.endStudy(false, "WEBCAM: getUserMedia is not supported. ");
+                if (this.jatosInstance !== null){
+                    this.jatosInstance.endStudy(false, "WEBCAM: getUserMedia is not supported. ");
+                }
             } else {
                 navigator.mediaDevices.enumerateDevices()
                     .then(devices => {
@@ -116,7 +117,6 @@ var jsPsychWebcamRecord = (function(jspsych) {
                 } catch(e) {
                     console.log("WEBCAM: streamObj was not initialized, creating new object with default perimeters. Check for validity! "+e)
                     alert(`Unfortunately, we're not able to initiaize your camera stream.`);
-                    // this.jatosInstance.endStudy(false, "WEBCAM: Webcam streamObj couldn't be initialized. ");
                     this.jsPsych.endExperiment("WEBCAM: Webcam streamObj couldn't be initialized.", {error_data: "WEBCAM: Webcam streamObj couldn't be initialized."});
                 }
             }
